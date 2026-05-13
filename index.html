@@ -191,7 +191,7 @@
       .image-col  { min-height: 260px; }
     }
 
-    /* ── Print ────────────────────────────────────────────────── */
+    /* ── Print (Ctrl+P fallback) ──────────────────────────────── */
     @media print {
       html, body  { height: auto; overflow: visible; }
       .app        { height: auto; padding: 16px 24px; }
@@ -199,9 +199,16 @@
       header h1   { font-size: 1.5rem; }
       .actions    { display: none; }
       .main-layout { min-height: 420px; }
+      .image-col  {
+        min-height: 380px;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
+      }
       textarea    { border: 1px solid #bbb !important; background: #fff !important; }
     }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div class="app">
@@ -347,38 +354,75 @@ function updateStreamPath() {
 updateStreamPath();
 window.addEventListener('resize', updateStreamPath);
 
-// ── Print with animation ───────────────────────────────────────────────────────
-function handlePrint() {
+// ── Save as PDF (no printer dialog) ───────────────────────────────────────────
+async function handlePrint() {
+  const btn = document.querySelector('.print-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
   const allFilled = ['story1', 'story2', 'story3'].every(
     id => document.getElementById(id).value.trim().length > 0
   );
 
-  if (!allFilled) { window.print(); return; }
+  let len = 0;
 
-  updateStreamPath();                        // recompute in case window resized
-  const len = streamPath.getTotalLength();
+  if (allFilled) {
+    updateStreamPath();
+    len = streamPath.getTotalLength();
 
-  streamPath.style.transition       = 'none';
-  streamPath.style.opacity          = '1';
-  streamPath.style.strokeDasharray  = len;
-  streamPath.style.strokeDashoffset = len;
+    if (len > 0) {
+      streamPath.style.transition       = 'none';
+      streamPath.style.opacity          = '1';
+      streamPath.style.strokeDasharray  = len;
+      streamPath.style.strokeDashoffset = len;
+      streamPath.getBoundingClientRect();
+      streamPath.style.transition       = 'stroke-dashoffset 1.5s ease-in';
+      streamPath.style.strokeDashoffset = '0';
 
-  streamPath.getBoundingClientRect();        // force reflow before transition
+      await new Promise(r => setTimeout(r, 1600));
 
-  streamPath.style.transition       = 'stroke-dashoffset 1.5s ease-in';
-  streamPath.style.strokeDashoffset = '0';
+      streamPath.style.transition       = 'none';
+      streamPath.style.strokeDashoffset = '0';
+      streamPath.getBoundingClientRect();
+    }
+  }
 
-  setTimeout(() => {
-    window.print();
-    setTimeout(() => {
+  try {
+    const appEl = document.querySelector('.app');
+    const canvas = await html2canvas(appEl, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#f4f1ec',
+      logging: false,
+    });
+
+    const { jsPDF } = window.jspdf;
+    const w = canvas.width / 2;
+    const h = canvas.height / 2;
+    const pdf = new jsPDF({
+      orientation: w > h ? 'landscape' : 'portrait',
+      unit: 'px',
+      format: [w, h],
+    });
+    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, w, h);
+    pdf.save('three-part-thesis.pdf');
+  } catch (err) {
+    console.error('PDF generation failed:', err);
+    alert('PDF generation failed. Try File → Print → Save as PDF in your browser instead.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save as PDF';
+
+    if (allFilled && len > 0) {
       streamPath.style.transition = 'opacity 0.6s ease';
       streamPath.style.opacity    = '0';
       setTimeout(() => {
         streamPath.style.transition       = 'none';
         streamPath.style.strokeDashoffset = len;
       }, 700);
-    }, 400);
-  }, 1700);
+    }
+  }
 }
 </script>
 </body>
